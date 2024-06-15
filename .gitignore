@@ -1,5 +1,6 @@
 __pycache__
 logs
-UVG
+UVG/gt
+UVG/keyframe
 outfiles
 models
