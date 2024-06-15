@@ -28,7 +28,7 @@ def main():
     # Model and Dataset configuration
     parser.add_argument('--dataset', type=str, default='UVG', help='dataset')
     parser.add_argument('--model_type', type=str, default='D-NeRV', choices=['NeRV', 'D-NeRV'])
-    parser.add_argument('--model_size', type=str, default='S', choices=['XS', 'S', 'M', 'L', 'XL'])
+    parser.add_argument('--model_size', type=str, default='S', choices=['XXS','XS', 'S', 'M', 'L', 'XL'])
     parser.add_argument('--embed', type=str, default='1.25_240', help='base value/embed length for position encoding')
     parser.add_argument('--spatial_size_h', type=int, default=256)
     parser.add_argument('--spatial_size_w', type=int, default=320)
@@ -76,6 +76,7 @@ def main():
     if args.dataset == 'UVG':
         if args.model_type == 'D-NeRV':
             model_size_dict = {
+                'XXS': {'fc_dim': 52, 'keyframe_quality': 3},
                 'XS': {'fc_dim': 107, 'keyframe_quality': 3},
                 'S' : {'fc_dim': 166, 'keyframe_quality': 3},
                 'M' : {'fc_dim': 213, 'keyframe_quality': 4},

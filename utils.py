@@ -243,7 +243,7 @@ def calculate_metrics_UVG(video_name, video_length, gt_base_dir, pred_base_dir, 
 
 def evaluate_UVG(pred_base_dir, device):
     video_length_list = [["Bosphorus", 600], ["YachtRide", 600], ["HoneyBee", 600], ["ShakeNDry", 300], ["Jockey", 600], ["Beauty", 600], ["ReadySteadyGo", 600]]
-    gt_base_dir = 'data/UVG/gt'
+    gt_base_dir = './UVG/gt'
 
     global result_dict
     result_dict = {}
