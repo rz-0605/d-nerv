@@ -181,7 +181,7 @@ class WarpKeyframe(nn.Module):
 def split_list(l, n):
     """Yield successive n-sized chunks from l."""
     length = len(l)
-    chunk_size = round(length / n)
+    chunk_size = max(round(length / n), 1)
     for i in range(0, length, chunk_size):
         yield l[i:i + chunk_size]
 
@@ -242,7 +242,8 @@ def calculate_metrics_UVG(video_name, video_length, gt_base_dir, pred_base_dir, 
     result_dict['{}'.format(video_name)] = {'psnr': video_psnr, 'msssim': video_msssim, 'clip_size': video_length}
 
 def evaluate_UVG(pred_base_dir, device):
-    video_length_list = [["Bosphorus", 600], ["YachtRide", 600], ["HoneyBee", 600], ["ShakeNDry", 300], ["Jockey", 600], ["Beauty", 600], ["ReadySteadyGo", 600]]
+    # video_length_list = [["Bosphorus", 600], ["YachtRide", 600], ["HoneyBee", 600], ["ShakeNDry", 300], ["Jockey", 600], ["Beauty", 600], ["ReadySteadyGo", 600]]
+    video_length_list = [["Beauty", 600]]
     gt_base_dir = './UVG/gt'
 
     global result_dict

@@ -258,6 +258,10 @@ def train(local_rank, args):
     # Training
     start = datetime.now()
     total_epochs = args.epochs
+    total_time = 0
+    flops = 0
+    train_best_psnr = float("-inf")
+    train_best_msssim = float("-inf")
     for epoch in range(args.start_epoch, total_epochs):
         if train_sampler is not None:
             train_sampler.set_epoch(epoch)
@@ -273,16 +277,22 @@ def train(local_rank, args):
             video, embed_input, keyframe, backward_distance, frame_mask = video.to(device), embed_input.to(device), \
                                                                         keyframe.to(device), backward_distance.to(device), frame_mask.to(device)
 
-            if args.model_type == 'NeRV':
-                output_rgb = model(embed_input)
-            elif args.model_type == 'D-NeRV':
-                output_rgb = model(embed_input, keyframe=keyframe, backward_distance=backward_distance)
+            os.environ["KINETO_LOG_LEVEL"] = "5"
+            with torch.profiler.profile(activities=[torch.profiler.ProfilerActivity.CPU, torch.profiler.ProfilerActivity.CUDA],
+                    with_flops=True
+                ) as prof:
+                    if args.model_type == 'NeRV':
+                        output_rgb = model(embed_input)
+                    elif args.model_type == 'D-NeRV':
+                        output_rgb = model(embed_input, keyframe=keyframe, backward_distance=backward_distance)
 
-            loss = loss_fn(output_rgb, video, frame_mask, loss_type=args.loss_type)
-            lr = adjust_lr(optimizer, epoch, i, len(train_dataloader), args)
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
+                    loss = loss_fn(output_rgb, video, frame_mask, loss_type=args.loss_type)
+                    lr = adjust_lr(optimizer, epoch, i, len(train_dataloader), args)
+                    optimizer.zero_grad()
+                    loss.backward()
+                    optimizer.step()
+
+            flops += sum(evt.flops for evt in prof.events())
 
             # compute psnr and msssim for all the frames
             psnr_list.append(psnr_fn(output_rgb, video, frame_mask))
@@ -306,25 +316,28 @@ def train(local_rank, args):
             train_msssim = all_reduce([train_msssim.to(device)])
 
         # add train_psnr to tensorboard
-        if local_rank in [0, None]:
-            h, w = output_rgb.shape[-2:]
-            is_train_best = train_psnr[-1] > train_best_psnr
-            train_best_psnr = max(train_psnr[-1], train_best_psnr)
-            train_best_msssim = max(train_msssim[-1], train_best_msssim)
-            writer.add_scalar(f'Train/PSNR_{h}X{w}', train_psnr[-1], epoch+1)
-            writer.add_scalar(f'Train/MSSSIM_{h}X{w}', train_msssim[-1], epoch+1)
-            writer.add_scalar(f'Train/best_PSNR_{h}X{w}', train_best_psnr, epoch+1)
-            writer.add_scalar(f'Train/best_MSSSIM_{h}X{w}', train_best_msssim, epoch+1)
-            writer.add_scalar('Train/lr', lr, epoch+1)
-            print_str = '\t{}x{}p: current: {:.2f}/{:.2f}\t msssim: {:.4f}/{:.4f}\t'.format(
-                h, w, train_psnr[-1].item(), train_best_psnr.item(), train_msssim[-1].item(), train_best_msssim.item())
-            print(print_str, flush=True)
-            with open('{}/rank0.txt'.format(args.outf), 'a') as f:
-                f.write(print_str + '\n')
+        # if local_rank in [0, None]:
+        #     h, w = output_rgb.shape[-2:]
+        #     is_train_best = train_psnr[-1] > train_best_psnr
+        #     train_best_psnr = max(train_psnr[-1], train_best_psnr)
+        #     train_best_msssim = max(train_msssim[-1], train_best_msssim)
+        #     writer.add_scalar(f'Train/PSNR_{h}X{w}', train_psnr[-1], epoch+1)
+        #     writer.add_scalar(f'Train/MSSSIM_{h}X{w}', train_msssim[-1], epoch+1)
+        #     writer.add_scalar(f'Train/best_PSNR_{h}X{w}', train_best_psnr, epoch+1)
+        #     writer.add_scalar(f'Train/best_MSSSIM_{h}X{w}', train_best_msssim, epoch+1)
+        #     writer.add_scalar('Train/lr', lr, epoch+1)
+        #     print_str = '\t{}x{}p: current: {:.2f}/{:.2f}\t msssim: {:.4f}/{:.4f}\t'.format(
+        #         h, w, train_psnr[-1].item(), train_best_psnr.item(), train_msssim[-1].item(), train_best_msssim.item())
+        #     print(print_str, flush=True)
+        #     with open('{}/rank0.txt'.format(args.outf), 'a') as f:
+        #         f.write(print_str + '\n')
 
-            epoch_end_time = datetime.now()
-            print("Time/epoch: \tCurrent:{:.2f} \tAverage:{:.2f}\n\n\n".format( (epoch_end_time - epoch_start_time).total_seconds(), \
-                    (epoch_end_time - start).total_seconds() / (epoch + 1 - args.start_epoch) ))
+        epoch_end_time = datetime.now()
+        print("Time/epoch: \tCurrent:{:.2f} \tAverage:{:.2f}\n\n\n".format( (epoch_end_time - epoch_start_time).total_seconds(), \
+                (epoch_end_time - start).total_seconds() / (epoch + 1 - args.start_epoch) ))
+
+        train_best_psnr = max(train_best_psnr, train_psnr)
+        train_best_msssim = max(train_best_psnr, train_msssim)
 
         state_dict = model.state_dict()
         save_checkpoint = {
@@ -335,10 +348,10 @@ def train(local_rank, args):
             'optimizer': optimizer.state_dict(),   
         }
 
+        # evaluation without model quantization
+        val_psnr, val_msssim = evaluate(model, val_dataloader, PE, local_rank, args)
         # evaluation at the final epoch
         if (epoch + 1) == total_epochs:
-            # evaluation without model quantization
-            val_psnr, val_msssim = evaluate(model, val_dataloader, PE, local_rank, args)
             if args.distributed and args.ngpus_per_node > 1:
                 val_psnr = all_reduce([val_psnr.to(device)])
                 val_msssim = all_reduce([val_msssim.to(device)])
@@ -364,6 +377,11 @@ def train(local_rank, args):
             if is_train_best:
                 torch.save(save_checkpoint, '{}/model_train_best.pth'.format(args.outf))
 
+        total_time += (epoch_end_time - start).total_seconds()
+        print("f{epoch},{total_time},{flops},{val_psnr},{val_msssim}")
+        with open('evaluation.txt', 'a') as f:
+            f.write(f"{epoch},{total_time},{flops},{val_psnr},{val_msssim}" + '\n')
+    
     print("Training complete in: " + str(datetime.now() - start))
 
 
