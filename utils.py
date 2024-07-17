@@ -196,7 +196,8 @@ def psnr(img1, img2):
 # and then re-evaluate the PSNR/MS-SSIM results of 1024x1920 resolution
 @torch.no_grad()
 def calculate_metrics_UVG(video_name, video_length, gt_base_dir, pred_base_dir, device):
-    h = 1024
+    print("calculating UVG metrics...")
+    h = 1280
     w = 1920
     split_size_h = 256
     split_size_w = 320
@@ -220,9 +221,14 @@ def calculate_metrics_UVG(video_name, video_length, gt_base_dir, pred_base_dir, 
         pred_image = np.stack(pred_image_list, axis=0)
         pred_image = pred_image.reshape(split_num_h, split_num_w, split_size_h, split_size_w, 3)
         pred_image = pred_image.transpose(0, 2, 1, 3, 4).reshape(h, w, 3)
+        # crop back to 1080x1920
+        pred_image = pred_image[0:1080, :, :]
+
         gt_image = np.stack(gt_image_list, axis=0)
         gt_image = gt_image.reshape(split_num_h, split_num_w, split_size_h, split_size_w, 3)
         gt_image = gt_image.transpose(0, 2, 1, 3, 4).reshape(h, w, 3)
+        # crop back to 1080x1920
+        gt_image = gt_image[0:1080, :, :]
 
         gt_image_cuda = torch.from_numpy(gt_image).to(torch.float32).to(device)
         pred_image_cuda = torch.from_numpy(pred_image).to(torch.float32).to(device)
@@ -244,7 +250,7 @@ def calculate_metrics_UVG(video_name, video_length, gt_base_dir, pred_base_dir, 
 def evaluate_UVG(pred_base_dir, device):
     # video_length_list = [["Bosphorus", 600], ["YachtRide", 600], ["HoneyBee", 600], ["ShakeNDry", 300], ["Jockey", 600], ["Beauty", 600], ["ReadySteadyGo", 600]]
     video_length_list = [["Beauty", 600]]
-    gt_base_dir = './UVG/gt'
+    gt_base_dir = './UVG_1920x1080.256x320/gt'
 
     global result_dict
     result_dict = {}
